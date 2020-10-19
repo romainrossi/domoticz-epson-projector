@@ -65,7 +65,7 @@ class EpsonProjectorPlugin:
 
 
     def onStart(self):
-        Domoticz.Heartbeat(10) # Set the polling interval
+        Domoticz.Heartbeat(3) # Set the polling interval
         
         if (len(Devices) != 2):
             # Image : 2=TV
