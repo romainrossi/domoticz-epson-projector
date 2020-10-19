@@ -121,9 +121,9 @@ class EpsonProjectorPlugin:
             Domoticz.Error("Command requested but serial port not connected")
         elif Unit == 1 :
             if Command=="Off" :
-                self.SerialConn.Send("PWR OFF")
+                self.SerialConn.Send("PWR OFF\r")
             elif Command=="On" :
-                self.SerialConn.Send("PWR ON")
+                self.SerialConn.Send("PWR ON\r")
         return
 
 
