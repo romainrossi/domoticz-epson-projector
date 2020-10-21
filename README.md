@@ -20,7 +20,7 @@ This plugin creates two devices in Domoticz :
 Most Epson projector with a serial port should be supported.
 
 | Tested device | Result |
-|---|---|---|
+|---|---|
 | Epson EMP-TW680 | Working |
 
 
