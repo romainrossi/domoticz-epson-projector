@@ -8,7 +8,7 @@
 #
 
 """
-<plugin key="domoticz_epson_projector" name="Epson Projector" author="Romain Rossi" version="0.0.1" wikilink="https://www.domoticz.com/wiki/Developing_a_Python_plugin" externallink="https://github.com/romainrossi/domoticz-epson-projector">
+<plugin key="domoticz_epson_projector" name="Epson Projector" author="Romain Rossi" version="0.1.0" wikilink="https://www.domoticz.com/wiki/Developing_a_Python_plugin" externallink="https://github.com/romainrossi/domoticz-epson-projector">
     <description>
         <h2>Epson Projector</h2><br/>
         This hardware controls an Epson projector using dedicated protocol
@@ -68,24 +68,25 @@ class EpsonProjectorPlugin:
 
 
     def onStart(self):
+        Domoticz.Status("Setting polling period : "+Parameters["Port"]+"s")
         Domoticz.Heartbeat(int(Parameters["Port"])) # Set the polling interval
-        
+
         if (len(Devices) != 2):
             # Image : 2=TV
             Domoticz.Device(Name="Projector", Unit=1, TypeName="Switch", Image=2).Create()
             Domoticz.Device(Name="Projector Errors", Unit=2, TypeName="Alert", Image=2).Create()
-            Domoticz.Log("Devices created.")
+            Domoticz.Status("Devices created.")
 
         # Set all devices as TimedOut (red banner)
         for Device in Devices:
             Devices[Device].Update(nValue=Devices[Device].nValue, sValue=Devices[Device].sValue, TimedOut=1)
-            self.SerialConn = Domoticz.Connection(Name="epsonproj", Transport="Serial", Protocol="None", Address=Parameters["SerialPort"], Baud=9600)
+            self.SerialConn = Domoticz.Connection(Name="epsonproj", Transport="Serial", Protocol="Line", Address=Parameters["SerialPort"], Baud=9600)
             self.SerialConn.Connect()
 
 
     def onStop(self):
         self.SerialConn.Disconnect()
-        Domoticz.Log("onStop()->disconnect")
+        Domoticz.Status("Stopping")
         return
 
 
@@ -100,8 +101,9 @@ class EpsonProjectorPlugin:
 
     def onMessage(self, Connection, Data):
         data = Data.decode('utf-8') # Convert from raw byte stream to string
-        data = data.replace('\r','') # Strip \r
+        data = data.replace('\r',':') # Strip \r
         self.Received += data # Add new message to previously incomplete message
+        Domoticz.Log("Received:"+self.Received)
         try:
             msgs = self.Received.split(':') # Split each message
         except ValueError:
@@ -111,14 +113,14 @@ class EpsonProjectorPlugin:
         for i in range(nb_msgs):
             m = msgs[i]
             fields = m.split('=') # Split the message of format ITEM=val
-            if ( len(fields) == 2 ):
-	            # Handle the various answers
+            if ( len(fields) == 2 and len(fields[1])==2 ):
+                # Handle the various answers
     	        if fields[0] == 'PWR': # Power status update
-        	        self.UpdatePwrStatus(fields[1])
+                    self.UpdatePwrStatus(fields[1])
             	elif fields[0] == 'ERR': # Error status update
-                	self.UpdateErrorStatus(fields[1])
+                    self.UpdateErrorStatus(fields[1])
             	else:
-                	Domoticz.Error("Unknown answer received : " + str(Data))
+                    Domoticz.Log("Unknown answer received : " + str(m))
             elif ( i == nb_msgs-1 ): # The last message is incomplete
                 self.Received = m # Store the partial message
         return
@@ -128,7 +130,7 @@ class EpsonProjectorPlugin:
         # Called when switch is actuated in Domoticz
         Domoticz.Log("onCommand called for Unit " + str(Unit) + ": Parameter '" + str(Command) + "', Level: " + str(Level))
         if self.SerialConn is None:
-            Domoticz.Error("Command requested but serial port not connected")
+            Domoticz.Log("Command requested but serial port not connected")
         elif Unit == 1 :
             if Command=="Off" :
                 self.SerialConn.Send("PWR OFF\r")
@@ -140,12 +142,12 @@ class EpsonProjectorPlugin:
     def onDisconnect(self, Connection):
         for Device in Devices:
             Devices[Device].Update(nValue=Devices[Device].nValue, sValue=Devices[Device].sValue, TimedOut=1)
-        Domoticz.Log("Connection '"+Connection.Name+"' disconnected.")
+        Domoticz.Status("Connection '"+Connection.Name+"' disconnected.")
         return
 
 
     def onHeartbeat(self):
-        # Called every 10 seconds (period can be changed by the Domoticz.Heartbeat(15) command)
+        # Called every x seconds (see configuration)
         # Poll the projector
         if self.SerialConn is None:
             Domoticz.Error("Serial port not connected")
@@ -182,7 +184,7 @@ class EpsonProjectorPlugin:
         try:
             sValue = self.ErrorMessages[ErrorValue]
         except KeyError as e:
-            Domoticz.Error("Unknown error code received : " + str(ErrorValue))
+            Domoticz.Log("Unknown error code received : " + str(ErrorValue))
             sValue = "Unknown Error " + str(ErrorValue)
 
         # Set Alert color
