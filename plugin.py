@@ -26,10 +26,12 @@
         <h3>Configuration</h3>
         <ul style="list-style-type:square">
             <li>Serial Port - Configure the serial port connected to the projector</li>
+            <li>Polling Period - Configure the polling interval (seconds)</li>
         </ul>
     </description>
     <params>
         <param field="SerialPort" label="Serial Port" width="150px" required="true" default="/dev/ttyUSBx"/>
+        <param field="Port" label="Polling Period (s)" width="150px" required="true" default="15"/>
     </params>
 </plugin>
 """
@@ -40,6 +42,7 @@ class EpsonProjectorPlugin:
     SerialConn = None
     Requests = ['PWR?\r','ERR?\r']
     LastRequestIndex = 0
+    Received = ''
     ErrorMessages = {
           '00' : 'No error',
           '01' : 'Fan error',
@@ -65,7 +68,7 @@ class EpsonProjectorPlugin:
 
 
     def onStart(self):
-        Domoticz.Heartbeat(3) # Set the polling interval
+        Domoticz.Heartbeat(int(Parameters["Port"])) # Set the polling interval
         
         if (len(Devices) != 2):
             # Image : 2=TV
@@ -81,6 +84,8 @@ class EpsonProjectorPlugin:
 
 
     def onStop(self):
+        self.SerialConn.Disconnect()
+        Domoticz.Log("onStop()->disconnect")
         return
 
 
@@ -95,22 +100,27 @@ class EpsonProjectorPlugin:
 
     def onMessage(self, Connection, Data):
         data = Data.decode('utf-8') # Convert from raw byte stream to string
-        
-        # strip leading ':' and '\r'
-        remove = [':','\r']
-        for c in remove:
-            data = data.replace(c,'')
-        
-        
-        fields = data.split('=',1) # Split the message of format ITEM=val
-        if ( len(fields) == 2 ):
-            # Handle the various answers
-            if fields[0] == 'PWR': # Power status update
-                self.UpdatePwrStatus(fields[1])
-            elif fields[0] == 'ERR': # Error status update
-                self.UpdateErrorStatus(fields[1])
-            else:
-                Domoticz.Error("Unknown answer received : " + str(Data))
+        data = data.replace('\r','') # Strip \r
+        self.Received += data # Add new message to previously incomplete message
+        try:
+            msgs = self.Received.split(':') # Split each message
+        except ValueError:
+            pass
+        self.Received = '' # Clean incomplete message storage
+        nb_msgs = len(msgs)
+        for i in range(nb_msgs):
+            m = msgs[i]
+            fields = m.split('=') # Split the message of format ITEM=val
+            if ( len(fields) == 2 ):
+	            # Handle the various answers
+    	        if fields[0] == 'PWR': # Power status update
+        	        self.UpdatePwrStatus(fields[1])
+            	elif fields[0] == 'ERR': # Error status update
+                	self.UpdateErrorStatus(fields[1])
+            	else:
+                	Domoticz.Error("Unknown answer received : " + str(Data))
+            elif ( i == nb_msgs-1 ): # The last message is incomplete
+                self.Received = m # Store the partial message
         return
 
 
