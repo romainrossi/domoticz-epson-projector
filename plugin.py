@@ -85,7 +85,6 @@ class EpsonProjectorPlugin:
 
 
     def onStop(self):
-        self.SerialConn.Disconnect()
         Domoticz.Status("Stopping")
         return
 
