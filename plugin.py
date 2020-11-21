@@ -82,8 +82,7 @@ class EpsonProjectorPlugin:
             # Image : 2=TV
             Domoticz.Device(Name="Projector", Unit=1, TypeName="Switch", Image=2).Create()
             Domoticz.Device(Name="Projector Errors", Unit=2, TypeName="Alert").Create()
-            Domoticz.Device(Name="Projector Lamp Hours", Unit=3, TypeName="Custom", Options={"Custom": "1;Hours"}).Create()
-            #Domoticz.Device(Name="Projector Lamp Hours", Unit=3, Type=243, Subtype=33, Switchtype=5).Create() # Create a General(243) Managed Counter(33) of Time(5)
+            Domoticz.Device(Name="Projector Lamp Hours", Unit=3, TypeName="Custom", Options={"Custom": "1;Hours"}, Image=2).Create()
             Domoticz.Status("Devices created.")
 
         # Set all devices as TimedOut (red banner)
