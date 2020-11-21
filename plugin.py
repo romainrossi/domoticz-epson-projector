@@ -14,8 +14,8 @@
         This hardware controls an Epson projector using dedicated protocol
         <h3>Features</h3>
         <ul style="list-style-type:square">
-            <li>Power control and status on switch (ON/OFF) </li>
-            <li>Error status on Alert device</li>
+            <li>Power control and status on Switch Device (ON/OFF) </li>
+            <li>Error status on Alert Device</li>
             <li>Serial connection</li>
         </ul>
         <h3>Devices</h3>
@@ -40,8 +40,15 @@ import Domoticz
 class EpsonProjectorPlugin:
 
     SerialConn = None
-    Requests = ['PWR?\r','ERR?\r']
-    LastRequestIndex = 0
+    Requests = {
+        "Power": 'PWR?\r',
+        "Error": 'ERR?\r',
+        "Lamp": 'LAMP?\r'
+    }
+    ProjectorOn = False
+    RequestsList = ["Power"]
+    RequestsListOn = ["Power", "Error", "Lamp"]
+    RequestsListOff = ["Power", "Lamp"]
     Received = ''
     ErrorMessages = {
           '00' : 'No error',
@@ -71,10 +78,12 @@ class EpsonProjectorPlugin:
         Domoticz.Status("Setting polling period : "+Parameters["Port"]+"s")
         Domoticz.Heartbeat(int(Parameters["Port"])) # Set the polling interval
 
-        if (len(Devices) != 2):
+        if (len(Devices) < 3):
             # Image : 2=TV
             Domoticz.Device(Name="Projector", Unit=1, TypeName="Switch", Image=2).Create()
-            Domoticz.Device(Name="Projector Errors", Unit=2, TypeName="Alert", Image=2).Create()
+            Domoticz.Device(Name="Projector Errors", Unit=2, TypeName="Alert").Create()
+            Domoticz.Device(Name="Projector Lamp Hours", Unit=3, TypeName="Custom", Options={"Custom": "1;Hours"}).Create()
+            #Domoticz.Device(Name="Projector Lamp Hours", Unit=3, Type=243, Subtype=33, Switchtype=5).Create() # Create a General(243) Managed Counter(33) of Time(5)
             Domoticz.Status("Devices created.")
 
         # Set all devices as TimedOut (red banner)
@@ -82,7 +91,6 @@ class EpsonProjectorPlugin:
             Devices[Device].Update(nValue=Devices[Device].nValue, sValue=Devices[Device].sValue, TimedOut=1)
             self.SerialConn = Domoticz.Connection(Name="epsonproj", Transport="Serial", Protocol="Line", Address=Parameters["SerialPort"], Baud=9600)
             self.SerialConn.Connect()
-
 
     def onStop(self):
         Domoticz.Status("Stopping")
@@ -112,13 +120,15 @@ class EpsonProjectorPlugin:
         for i in range(nb_msgs):
             m = msgs[i]
             fields = m.split('=') # Split the message of format ITEM=val
-            if ( len(fields) == 2 and len(fields[1])==2 ):
+            if ( len(fields) == 2 and len(fields[1])>=1 ):
                 # Handle the various answers
-    	        if fields[0] == 'PWR': # Power status update
+                if fields[0] == 'PWR': # Power status update
                     self.UpdatePwrStatus(fields[1])
-            	elif fields[0] == 'ERR': # Error status update
+                elif fields[0] == 'ERR': # Error status update
                     self.UpdateErrorStatus(fields[1])
-            	else:
+                elif fields[0] == 'LAMP': # Lamp counter update 1
+                    self.UpdateLampCounter(fields[1])
+                else:
                     Domoticz.Log("Unknown answer received : " + str(m))
             elif ( i == nb_msgs-1 ): # The last message is incomplete
                 self.Received = m # Store the partial message
@@ -133,15 +143,17 @@ class EpsonProjectorPlugin:
         elif Unit == 1 :
             if Command=="Off" :
                 self.SerialConn.Send("PWR OFF\r")
+                Domoticz.Status("Switching OFF")
             elif Command=="On" :
                 self.SerialConn.Send("PWR ON\r")
+                Domoticz.Status("Switching ON")
         return
 
 
     def onDisconnect(self, Connection):
         for Device in Devices:
             Devices[Device].Update(nValue=Devices[Device].nValue, sValue=Devices[Device].sValue, TimedOut=1)
-        Domoticz.Status("Connection '"+Connection.Name+"' disconnected.")
+            Domoticz.Status("Connection '"+Connection.Name+"' disconnected.")
         return
 
 
@@ -151,24 +163,36 @@ class EpsonProjectorPlugin:
         if self.SerialConn is None:
             Domoticz.Error("Serial port not connected")
         else:
-            self.LastRequestIndex = self.LastRequestIndex + 1
-            if ( self.LastRequestIndex >= len(self.Requests) ):
-                self.LastRequestIndex = 0
-            self.SerialConn.Send(self.Requests[self.LastRequestIndex])
+            # Prepare the list of Requests
+            if not self.RequestsList:
+                if self.ProjectorOn: #Projector is ON, use the RequestsListOn
+                    self.RequestsList = self.RequestsListOn.copy()
+                else:
+                    self.RequestsList = self.RequestsListOff.copy()
+            Domoticz.Log("list = " + ";".join(self.RequestsList))
+            # Send Request
+            msg = self.Requests[self.RequestsList.pop()]
+            self.SerialConn.Send(msg)
+            Domoticz.Log("Sent : "+ msg)
 
 
     def UpdatePwrStatus(self,PwrValue):
         Dev = Devices[1] # Projector domoticz Switch device
         if PwrValue == "00": # Off
             nValue = 0
+            self.ProjectorOn = False
         elif PwrValue == "01": # On
             nValue = 1
+            self.ProjectorOn = True
         elif PwrValue == "02": # Warming Up
             nValue = 1
+            self.ProjectorOn = True
         elif PwrValue == "03": # Cooling Down
             nValue = 0
+            self.ProjectorOn = False
         elif PwrValue == "05": # Abnormal shutdown
             nValue = 0
+            self.ProjectorOn = False
         else:
             return
         sValue=''
@@ -183,7 +207,7 @@ class EpsonProjectorPlugin:
         try:
             sValue = self.ErrorMessages[ErrorValue]
         except KeyError as e:
-            Domoticz.Log("Unknown error code received : " + str(ErrorValue))
+            Domoticz.Error("Unknown error code received : " + str(ErrorValue))
             sValue = "Unknown Error " + str(ErrorValue)
 
         # Set Alert color
@@ -197,6 +221,14 @@ class EpsonProjectorPlugin:
             Dev.Update(nValue=nValue, sValue=str(sValue), TimedOut=TimedOut)
         return
 
+
+    def UpdateLampCounter(self, LampHour):
+        Dev = Devices[3] # Counter
+        TimedOut = 0
+        sValue=str(LampHour)
+        if (Dev.sValue != sValue) or (Dev.TimedOut != TimedOut):
+            Dev.Update(nValue=0, sValue=sValue, TimedOut=TimedOut)
+        return
 
 
 # Domoticz callbacks boilerplate
@@ -230,4 +262,3 @@ def onDisconnect(Connection):
 def onHeartbeat():
     global _plugin
     _plugin.onHeartbeat()
-
