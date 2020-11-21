@@ -32,6 +32,17 @@
     <params>
         <param field="SerialPort" label="Serial Port" width="150px" required="true" default="/dev/ttyUSBx"/>
         <param field="Port" label="Polling Period (s)" width="150px" required="true" default="15"/>
+        <param field="Mode6" label="Debug" width="150px">
+            <options>
+                <option label="None" value="0"  default="true" />
+                <option label="Python Only" value="2"/>
+                <option label="Basic Debugging" value="62"/>
+                <option label="Basic+Messages" value="126"/>
+                <option label="Connections Only" value="16"/>
+                <option label="Connections+Queue" value="144"/>
+                <option label="All" value="-1"/>
+            </options>
+        </param>
     </params>
 </plugin>
 """
@@ -75,6 +86,8 @@ class EpsonProjectorPlugin:
 
 
     def onStart(self):
+        if Parameters["Mode6"] != "0":
+            Domoticz.Debugging(int(Parameters["Mode6"]))
         Domoticz.Status("Setting polling period : "+Parameters["Port"]+"s")
         Domoticz.Heartbeat(int(Parameters["Port"])) # Set the polling interval
 
@@ -109,7 +122,7 @@ class EpsonProjectorPlugin:
         data = Data.decode('utf-8') # Convert from raw byte stream to string
         data = data.replace('\r',':') # Strip \r
         self.Received += data # Add new message to previously incomplete message
-        Domoticz.Log("Received:"+self.Received)
+        Domoticz.Debug("Received:"+self.Received)
         try:
             msgs = self.Received.split(':') # Split each message
         except ValueError:
@@ -136,7 +149,7 @@ class EpsonProjectorPlugin:
 
     def onCommand(self, Unit, Command, Level, Hue):
         # Called when switch is actuated in Domoticz
-        Domoticz.Log("onCommand called for Unit " + str(Unit) + ": Parameter '" + str(Command) + "', Level: " + str(Level))
+        Domoticz.Debug("onCommand called for Unit " + str(Unit) + ": Parameter '" + str(Command) + "', Level: " + str(Level))
         if self.SerialConn is None:
             Domoticz.Log("Command requested but serial port not connected")
         elif Unit == 1 :
@@ -168,11 +181,11 @@ class EpsonProjectorPlugin:
                     self.RequestsList = self.RequestsListOn.copy()
                 else:
                     self.RequestsList = self.RequestsListOff.copy()
-            Domoticz.Log("list = " + ";".join(self.RequestsList))
+            Domoticz.Debug("list = " + ";".join(self.RequestsList))
             # Send Request
             msg = self.Requests[self.RequestsList.pop()]
             self.SerialConn.Send(msg)
-            Domoticz.Log("Sent : "+ msg)
+            Domoticz.Debug("Sent : "+ msg)
 
 
     def UpdatePwrStatus(self,PwrValue):
